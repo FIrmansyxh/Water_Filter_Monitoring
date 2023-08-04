@@ -1,91 +1,84 @@
-#include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <NewPing.h>
 
-#define triggerPin  15
-#define echoPin     13
-#define relayPin    12 // Ganti dengan pin yang sesuai untuk mengontrol relay
+#define TRIGGER_PIN 5 
+#define ECHO_PIN 4   
+#define MAX_DISTANCE 200
 
-LiquidCrystal_I2C lcd(0x27, 16, 2); // Ganti alamat 0x27 dengan alamat I2C LCD Anda, sesuaikan jumlah kolom dan baris LCD jika berbeda
+NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);
 
-const int sensorPin = A0; // A0 FOR ARDUINO/ 36 FOR ESP
+const int sensorPin = A0;
 const int clearThreshold = 20;
 const int cloudyThreshold = 50;
-const unsigned long relayDelay = 5000; // Waktu delay relay (dalam milidetik)
+const int relayPinA = 14;
+const int relayPinB = 12;
 
-bool isRelayOn = false;
-unsigned long relayStartTime = 0;
+bool turbidityActivated = false;
+
+LiquidCrystal_I2C lcd(0x27, 4, 16); 
 
 void setup() {
-  Serial.begin(9600);
-  pinMode(triggerPin, OUTPUT);
-  pinMode(echoPin, INPUT);
-  pinMode(relayPin, OUTPUT);
-  
-  lcd.init(); // Initialize LCD
-  lcd.backlight(); // Turn on LCD backlight
-
-  lcd.begin(16, 2); // Ganti ukuran kolom dan baris sesuai dengan layar LCD Anda
-  lcd.print("Jarak: "); // Menampilkan teks awal di layar LCD
+  Serial.begin(9600); 
+  lcd.begin(16, 4);
+  lcd.backlight(); 
+  pinMode(relayPinA, OUTPUT); 
+  pinMode(relayPinB, OUTPUT);
+  digitalWrite(relayPinA, LOW);
+  digitalWrite(relayPinB, LOW); 
 }
 
 void loop() {
-  // Kode untuk mengukur jarak
-  long duration, jarak;
-  digitalWrite(triggerPin, LOW);
-  delayMicroseconds(2); 
-  digitalWrite(triggerPin, HIGH);
-  delayMicroseconds(10); 
-  digitalWrite(triggerPin, LOW);
-  duration = pulseIn(echoPin, HIGH);
-  jarak = (duration / 2) / 29.1;
-
-  Serial.println("jarak :");
-  Serial.print(jarak);
-  Serial.println(" cm");
-
-  lcd.setCursor(7, 0); // Set posisi kursor di layar LCD untuk menampilkan jarak
-  lcd.print(jarak);
-  lcd.print(" cm   "); // Untuk membersihkan tampilan lama
-
-  // Kontrol relay berdasarkan jarak
-  if (jarak <= 30) {
-    digitalWrite(relayPin, LOW); // Matikan relay jika jarak <= 30 cm
-  } else if (jarak >= 50) {
-    digitalWrite(relayPin, HIGH); // Aktifkan relay jika jarak >= 50 cm
-  }
-
-  // Kode untuk membaca nilai turbidity dan menampilkan di LCD
-  int sensorValue = analogRead(sensorPin);
-  int turbidity = map(sensorValue, 0, 750, 0, 100);
-
-  lcd.setCursor(0, 1);
-  if (turbidity < clearThreshold) {
-    lcd.print("It's CLEAR    ");
-    Serial.println("It's CLEAR");
-  } else if (turbidity < cloudyThreshold) {
-    lcd.print("It's CLOUDY   ");
-    Serial.println("It's CLOUDY");
+  delay(500);
+  unsigned int distance = sonar.ping_cm();
+  if (distance == 0) {
+    Serial.println("Jarak terlalu jauh atau sensor tidak terdeteksi.");
   } else {
-    lcd.print("It's DIRTY    ");
-    Serial.println("It's DIRTY");
-  }
+    Serial.print("Jarak: ");
+    Serial.print(distance);
+    Serial.println(" cm");
 
-  // Menyalakan relay jika kondisi adalah "Cloudy" atau "Dirty"
-  if (turbidity >= cloudyThreshold) {
-    if (!isRelayOn) {
-      isRelayOn = true;
-      relayStartTime = millis(); // Catat waktu relay dinyalakan
-      digitalWrite(relayPin, HIGH); // Nyalakan relay
+    if (distance < 10) {
+      turbidityActivated = true;
+      Serial.println("Turbidity is activated!");
+      lcd.setCursor(0, 1);
+      lcd.print("Turbidity: ON ");
+      lcd.print("         ");
+    } else {
+      turbidityActivated = false;
+      Serial.println("Turbidity is not activated.");
+      lcd.setCursor(0, 1);
+      lcd.print("Turbidity: OFF");
+      lcd.print("         "); 
+      digitalWrite(relayPinA, LOW); 
+      digitalWrite(relayPinB, LOW);
     }
-  } else {
-    isRelayOn = false;
   }
 
-  // Mematikan relay setelah relayDelay (5 detik) menyala
-  if (isRelayOn && millis() - relayStartTime >= relayDelay) {
-    isRelayOn = false;
-    digitalWrite(relayPin, LOW); // Matikan relay
-  }
+  if (turbidityActivated) {
+    int sensorValue = analogRead(sensorPin);
+    Serial.println(sensorValue);
 
-  delay(100);
+    int turbidity = map(sensorValue, 0, 750, 0, 100);
+    delay(100);
+
+    if (turbidity < clearThreshold) {
+      Serial.println("It's CLEAR");
+      lcd.setCursor(0, 0);
+      lcd.print("Status: CLEAR   ");
+      digitalWrite(relayPinA, HIGH);
+      digitalWrite(relayPinB, LOW);
+    } else if (turbidity < cloudyThreshold) {
+      Serial.println("It's CLOUDY");
+      lcd.setCursor(0, 0);
+      lcd.print("Status: CLOUDY  ");
+      digitalWrite(relayPinA, LOW);
+      digitalWrite(relayPinB, HIGH);
+    } else {
+      Serial.println("It's between CLEAR and CLOUDY");
+      lcd.setCursor(0, 0);
+      lcd.print("Status: BETWEEN ");
+      digitalWrite(relayPinA, LOW);
+      digitalWrite(relayPinB, LOW);
+    }
+  }
 }
